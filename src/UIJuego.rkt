@@ -96,7 +96,9 @@
   (define colums  (leer-textFields tf-col))
   
   (when (and filas colums)    
-    (define M (crear-matrizJuego filas colums))
+    (define matrizJuego (crear-matrizJuego filas colums))
+    (abrir-ventana-juego matrizJuego)
+    (send Menu show #f)
     
     ;; Comprobacion matriz ha sido creada
     (displayln (format "Matriz (~a x ~a):" filas colums))   
@@ -104,6 +106,78 @@
 
 
 (send Menu show #t)
+
+
+(define (abrir-ventana-juego matrizInicial)
+  (define filas  (length matrizInicial))
+  (define cols   (length (first matrizInicial)))
+  (define cell   70)
+  (define width  (+ 1 (* cols cell)))
+  (define height (+ 1 (* filas cell)))
+
+  ;; Estado en caja (reemplazamos por una nueva matriz en cada clic)
+  (define matrizJuego (box matrizInicial))
+
+  (define frameJuego
+    (new frame%
+         [label "Juego - BusCEMinas"]
+         [width (+ width 400)]))
+
+  (define canvasJuego
+    (new
+     (class canvas%
+       (super-new [parent frameJuego]
+                  [min-width width]
+                  [min-height height])
+
+       ;; Dibujo
+       (define/override (on-paint)
+         (define dc (send this get-dc))
+         (send dc set-brush "white" 'solid)
+         (send dc set-pen "black" 1 'solid)
+         (send dc draw-rectangle 0 0 width height)
+
+         ;; Grid
+         (for* ([fila (in-range filas)] [col (in-range cols)])
+           (send dc draw-rectangle (* col cell) (* fila cell) cell cell))
+
+         ;; Mostrar valored de cada celda
+         (send dc set-font (make-object font% 10 'modern 'normal 'normal))
+         (send dc set-text-foreground "black")
+         (define matrizActual (unbox matrizJuego))
+         
+         (for* ([fila (in-range filas)] [col (in-range cols)])
+           (define x (* col cell))
+           (define y (* fila cell))
+           (define triple (list-ref (list-ref matrizActual fila) col))
+           (send dc draw-text (~a triple) (+ x 6) (+ y 8))))
+
+       ;; Clicks: izquierdo = 1 (revelado), derechos = 2 (marcado)
+       (define/override (on-event e)
+         (define evento (send e get-event-type))
+         (define mouse_x (send e get-x))
+         (define mouse_y (send e get-y))
+         (when (and (<= 0 mouse_x) (< mouse_x width) (<= 0 mouse_y) (< mouse_y height))
+           (define colSel (quotient mouse_x cell))
+           (define filaSel (quotient mouse_y cell))
+
+           (define matrizActual (unbox matrizJuego))
+           (define matrizNueva
+             (cond [(eq? evento 'left-down)  (descubrir matrizActual filaSel colSel)]   ; lógica pura
+                   [(eq? evento 'right-down) (marcar    matrizActual filaSel colSel)]
+                   [else matrizActual]))
+
+           (when (not (eq? matrizNueva matrizActual))
+             (set-box! matrizJuego matrizNueva)
+             (send this refresh))))
+       )))
+
+  (send frameJuego show #t)
+  frameJuego)
+
+
+
+
 
 
 
