@@ -94,31 +94,23 @@
   (define filas  (leer-textFields tf-fil))
   (define colums (leer-textFields tf-col))
   (when (and filas colums)
-    (define dificultad nivel) ; sin redundar porcentaje en la UI
+    (define dificultad nivel) 
     (define tablero (crear-tablero-inicial dificultad filas colums))
 
     (abrir-ventana-juego tablero)
-    (send Menu show #f)
-
-    ;; Log de verificación (opcional)
-    (define (contar-bombas b)
-      (for/sum ([row b]) (for/sum ([cell row]) (if (= (first cell) 1) 1 0))))
-    (displayln (format "Matriz (~a x ~a) nivel ~a => bombas: ~a"
-                       filas colums dificultad (contar-bombas tablero)))))
+    (send Menu show #f)))
 
 
 (send Menu show #t)
 
 
-(define (abrir-ventana-juego matrizInicial)
-  (define filas  (length matrizInicial))
-  (define cols   (length (first matrizInicial)))
+;; abrir-ventana-juego : Board -> Frame
+(define (abrir-ventana-juego tablero0)
+  (define filas  (length tablero0))
+  (define cols   (length (first tablero0)))
   (define cell   70)
   (define width  (+ 1 (* cols cell)))
   (define height (+ 1 (* filas cell)))
-
-  ;; Estado en caja (reemplazamos por una nueva matriz en cada clic)
-  (define matrizJuego (box matrizInicial))
 
   (define frameJuego
     (new frame%
@@ -128,18 +120,18 @@
   (define canvasJuego
     (new
      (class canvas%
+       ;; Estado UI-local (no boxes): una variable capturada
+       (init-field)
        (super-new [parent frameJuego]
                   [min-width width]
                   [min-height height])
 
-       ;; Helper: mostrar bombas como "(1 0 0)" siempre
-        (define (cell->debug-string triple)
-          (define b (first triple))
-          (define k (second triple)) ; click: 0 oculto, 1 revelado, 2 marcado
-          (define a (third triple))
-          (if (= b 1)
-              (format "(1 ~a ~a)" k a) ; respeta si quedó 1 o 2
-              (~a triple)))
+       ;; Tablero actual visible (mutable SOLO en la UI)
+       (define tablero tablero0)
+
+       ;; Helper: mostrar el triple real
+       (define (cell->string triple)
+         (~a triple))
 
        ;; Dibujo
        (define/override (on-paint)
@@ -152,38 +144,41 @@
          (for* ([fila (in-range filas)] [col (in-range cols)])
            (send dc draw-rectangle (* col cell) (* fila cell) cell cell))
 
-         ;; Texto por celda
+         ;; Texto por celda (desde `tablero`)
          (send dc set-font (make-object font% 10 'modern 'normal 'normal))
          (send dc set-text-foreground "black")
-         (define matrizActual (unbox matrizJuego))
          (for* ([fila (in-range filas)] [col (in-range cols)])
            (define x (* col cell))
            (define y (* fila cell))
-           (define triple (list-ref (list-ref matrizActual fila) col))
-           (send dc draw-text (cell->debug-string triple) (+ x 6) (+ y 8))))
+           (define triple (list-ref (list-ref tablero fila) col))
+           (send dc draw-text (cell->string triple) (+ x 6) (+ y 8))))
 
-       ;; Clicks: izquierdo = 1 (revelado), derechos = 2 (marcado)
+       ;; Eventos: derecho = descubrir (BFS), izquierdo = marcar
        (define/override (on-event e)
-         (define evento  (send e get-event-type))
-         (define mouse_x (send e get-x))
-         (define mouse_y (send e get-y))
-         (when (and (<= 0 mouse_x) (< mouse_x width)
-                    (<= 0 mouse_y) (< mouse_y height))
-           (define colSel  (quotient mouse_x cell))
-           (define filaSel (quotient mouse_y cell))
+         (define tipo   (send e get-event-type))
+         (define mousex (send e get-x))
+         (define mousey (send e get-y))
+         (when (and (<= 0 mousex) (< mousex width)
+                    (<= 0 mousey) (< mousey height))
+           (define colSel  (quotient mousex cell))
+           (define filaSel (quotient mousey cell))
 
-           (define matrizActual (unbox matrizJuego))
-           (define matrizNueva
-             (cond [(eq? evento 'left-down)  (descubrir matrizActual filaSel colSel)]
-                   [(eq? evento 'right-down) (marcar    matrizActual filaSel colSel)]
-                   [else matrizActual]))
+           ;; Calcula nuevo tablero usando LÓGICA PURA
+           (define tablero-nuevo
+             (cond [(or (eq? tipo 'left-down) (eq? tipo 'left-up) (eq? tipo 'menu))
+                    (descubrir tablero filaSel colSel)] ; REVELAR (BFS)
+                   [(or (eq? tipo 'right-down)  (eq? tipo 'right-up))
+                    (marcar    tablero filaSel colSel)] ; MARCAR
+                   [else tablero]))
 
-           (when (not (eq? matrizNueva matrizActual))
-             (set-box! matrizJuego matrizNueva)
-             (send this refresh)))))
-     ))
+           ;; Si cambió, actualiza la var local y repinta
+           (unless (equal? tablero-nuevo tablero)
+             (set! tablero tablero-nuevo)
+             (send this refresh)))))))
 
   (send frameJuego show #t)
   frameJuego)
+
+
 
 

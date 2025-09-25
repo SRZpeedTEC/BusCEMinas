@@ -19,7 +19,7 @@
 (define (make-empty-board rows cols)
   (for/list ([r (in-range rows)])
     (for/list ([c (in-range cols)])
-      (list 0 0 0)))) ; '(bomba click ady)
+      (list 0 0 0)))) ; '(bomba click adyacentes)
 
 ;; Posiciones y cantidad
 (define (all-positions rows cols)
@@ -63,7 +63,7 @@
           (list 1 0 0)
           cell))))
 
-;; ==== Vecinos y adyacentes ====
+;; Vecinos y adyacentes
 (define neighbors-deltas
   '((-1 -1) (-1 0) (-1 1)
     ( 0 -1)         ( 0 1)
@@ -93,9 +93,6 @@
       (list b c2 a))))
 
 
-;; -------------------------
-;; API principal
-;; -------------------------
 ;; Devuelve (values nuevo-tablero lista-de-posiciones)
 (define (init-bombs/list board dificultad)
   (define-values (rows cols) (board-dimensions board))
@@ -107,10 +104,9 @@
 (define (crear-tablero-inicial dificultad rows cols)
   (define empty (make-empty-board rows cols))
   (define-values (with-bombs _spots) (init-bombs/list empty dificultad))
-  (rellenar-adyacentes with-bombs)) ; <<< ahora el 3er campo viene listo
+  (rellenar-adyacentes with-bombs)) ;; Se calcula de una vez las adyacencias
 
-(provide crear-matrizJuego
-         difficulty->ratio
+(provide difficulty->ratio
          make-empty-board
          init-bombs/list
          crear-tablero-inicial
@@ -118,12 +114,6 @@
 
 
 ;; Creamos Matriz (((BOMBA?, ESTADO, ADYACENTES) , (BOMBA?, ESTADO, ADYACENTES)))
-
-(define (crear-matrizJuego filas colums)
-  (define celda '(0 0 0))
-  (build-list filas (lambda (_) (build-list colums (lambda (_) celda)))))
-
-(provide descubrir marcar actualizarEstado)
 
 
 ;; in-range? : n min max  -> #t si min <= n < max
