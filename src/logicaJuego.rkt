@@ -1,7 +1,93 @@
 #lang racket
 #| LOGICA DEL JUEGO |#
 
-(provide crear-matrizJuego )
+(require racket/list
+         racket/set)
+
+;; Dificultad -> porcentaje
+(define (difficulty->ratio d)
+  (cond [(or (eq? d 'facil)   (and (string? d) (string-ci=? d "facil")))   0.05]
+        [(or (eq? d 'medio)   (and (string? d) (string-ci=? d "medio")))   0.10]
+        [(or (eq? d 'dificil) (and (string? d) (string-ci=? d "dificil"))) 0.15]
+        [else (error 'difficulty->ratio (format "Dificultad desconocida: ~a" d))]))
+
+;; Utilidades tablero (listas)
+(define (board-dimensions board)
+  (values (length board)
+          (if (null? board) 0 (length (first board)))))
+
+(define (make-empty-board rows cols)
+  (for/list ([r (in-range rows)])
+    (for/list ([c (in-range cols)])
+      (list 0 0 0)))) ; '(bomba click ady)
+
+;; Posiciones y cantidad
+(define (all-positions rows cols)
+  (for*/list ([r (in-range rows)]
+              [c (in-range cols)])
+    (cons r c)))
+
+(define (num-bombs rows cols ratio)
+  (define total (* rows cols))
+  (define n (inexact->exact (floor (* ratio total))))
+  (cond [(<= total 1) 0]
+        [else (max 1 (min (- total 1) n))])) ; al menos 1, deja 1 libre
+
+(define (pick-positions rows cols k)
+  (take (shuffle (all-positions rows cols)) k))
+
+;; Helpers de tablero (listas, puros)
+(define (get-cell board r c)
+  (list-ref (list-ref board r) c))
+
+(define (set-cell board r c new)
+  ;; devuelve un NUEVO board con (r,c) reemplazado por 'new'
+  (define row (list-ref board r))
+  (define new-row
+    (append (take row c) (list new) (drop row (add1 c))))
+  (append (take board r) (list new-row) (drop board (add1 r))))
+
+(define (set-click board r c val)
+  ;; cambia el segundo campo (click) a val en (r,c)
+  (define cell (get-cell board r c)) ; '(b c a)
+  (set-cell board r c (list (first cell) val (third cell))))
+
+
+;; Colocar bombas (puro)
+;; Cualquiera de estas posiciones queda exactamente '(1 0 0)
+(define (place-bombs/list board bomb-positions)
+  (define pos-set (list->set bomb-positions)) ; equal?-set
+  (for/list ([row board] [r (in-naturals)])
+    (for/list ([cell row] [c (in-naturals)])
+      (if (set-member? pos-set (cons r c))
+          (list 1 0 0)
+          cell))))
+
+
+;; -------------------------
+;; API principal
+;; -------------------------
+;; Devuelve (values nuevo-tablero lista-de-posiciones)
+(define (init-bombs/list board dificultad)
+  (define-values (rows cols) (board-dimensions board))
+  (define ratio (difficulty->ratio dificultad))
+  (define k     (num-bombs rows cols ratio))
+  (define spots (pick-positions rows cols k))
+  (values (place-bombs/list board spots) spots))
+
+;; Conveniencia: crea tablero vacío y ya con bombas
+(define (crear-tablero-inicial dificultad rows cols)
+  (define empty (make-empty-board rows cols))
+  (define-values (with-bombs _spots) (init-bombs/list empty dificultad))
+  with-bombs)
+
+(provide crear-matrizJuego
+         difficulty->ratio
+         make-empty-board
+         init-bombs/list
+         crear-tablero-inicial
+         descubrir marcar actualizarEstado)
+
 
 ;; Creamos Matriz (((BOMBA?, ESTADO, ADYACENTES) , (BOMBA?, ESTADO, ADYACENTES)))
 
