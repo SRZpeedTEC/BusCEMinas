@@ -63,6 +63,35 @@
           (list 1 0 0)
           cell))))
 
+;; ==== Vecinos y adyacentes ====
+(define neighbors-deltas
+  '((-1 -1) (-1 0) (-1 1)
+    ( 0 -1)         ( 0 1)
+    ( 1 -1) ( 1 0)  ( 1 1)))
+
+(define (in-bounds? rows cols r c)
+  (and (in-range? r 0 rows) (in-range? c 0 cols)))
+
+(define (adjacent-bombs board r c)
+  (define-values (rows cols) (board-dimensions board))
+  (for/sum ([d neighbors-deltas])
+    (define rr (+ r (first d)))
+    (define cc (+ c (second d)))
+    (if (and (in-bounds? rows cols rr cc)
+             (= (first (get-cell board rr cc)) 1)) ; bomba?
+        1 0)))
+
+(define (rellenar-adyacentes board)
+  ;; Devuelve board con el 3er campo (ady) calculado para TODAS las celdas
+  (define-values (rows cols) (board-dimensions board))
+  (for/list ([r (in-range rows)])
+    (for/list ([c (in-range cols)])
+      (define cell (get-cell board r c)) ; '(b c a)
+      (define b (first  cell))
+      (define c2 (second cell))
+      (define a (if (= b 1) 0 (adjacent-bombs board r c))) ; bombas mantienen 0
+      (list b c2 a))))
+
 
 ;; -------------------------
 ;; API principal
@@ -75,11 +104,10 @@
   (define spots (pick-positions rows cols k))
   (values (place-bombs/list board spots) spots))
 
-;; Conveniencia: crea tablero vacío y ya con bombas
 (define (crear-tablero-inicial dificultad rows cols)
   (define empty (make-empty-board rows cols))
   (define-values (with-bombs _spots) (init-bombs/list empty dificultad))
-  with-bombs)
+  (rellenar-adyacentes with-bombs)) ; <<< ahora el 3er campo viene listo
 
 (provide crear-matrizJuego
          difficulty->ratio
@@ -137,10 +165,70 @@
 
 
 ;; Se presiono click izquierdo, llamamos a descubrir
-(define (descubrir matrizActual filaSel colSel)
-  (actualizarEstado matrizActual filaSel colSel 1))
+;; Revela una celda (2º campo = 1)
+(define (revelar board r c)
+  (set-click board r c 1))
+
+;; DESCUBRIR: permite descubrir aunque esté marcada (clk=2). Solo bloquea si ya está revelada (clk=1).
+(define (descubrir board r0 c0)
+  (define cell0 (get-cell board r0 c0))
+  (define clk0 (second cell0))
+  (cond
+    [(= clk0 1)  ; ya revelada → no hacer nada
+     board]
+    [else
+     (define b0 (first cell0))
+     (define a0 (third cell0))
+     (cond
+       [(= b0 1)
+        (revelar board r0 c0)]                  ; clic en bomba (manejo de perder aparte)
+
+       [(> a0 0)
+        (revelar board r0 c0)]                  ; número > 0: solo esa
+
+       [else
+        ;; a0 = 0 → BFS con visitados (sin recalcular adyacentes)
+        (let loop ((queue   (list (cons r0 c0)))
+                   (visited (set (cons r0 c0)))
+                   (B       (revelar board r0 c0)))
+          (cond
+            [(null? queue) B]
+            [else
+             (define r (car (car queue)))
+             (define c (cdr (car queue)))
+             (define-values (rows cols) (board-dimensions B))
+
+             (let-values ([(B1 V1 tail)
+                           (for/fold ([Bacc B] [Vacc visited] [tail '()])
+                                     ([d neighbors-deltas])
+                             (define rr (+ r (first d)))
+                             (define cc (+ c (second d)))
+                             (cond
+                               [(not (in-bounds? rows cols rr cc))
+                                (values Bacc Vacc tail)]
+                               [else
+                                (define cellN (get-cell Bacc rr cc))
+                                (define b (first  cellN))
+                                (define k (second cellN))
+                                (define a (third  cellN))
+                                (cond
+                                  [(= b 1)
+                                   (values Bacc Vacc tail)]               ; bomba: no revelar
+                                  [(or (= k 1) (set-member? Vacc (cons rr cc)))
+                                   (values Bacc Vacc tail)]               ; ya revelada/visitada
+                                  [else
+                                   (define Brev (revelar Bacc rr cc))
+                                   (if (= a 0)
+                                       (values Brev (set-add Vacc (cons rr cc))
+                                               (cons (cons rr cc) tail))  ; encola ceros
+                                       (values Brev (set-add Vacc (cons rr cc)) tail))])]))])
+               (loop (append (cdr queue) (reverse tail)) V1 B1))]))])]))
+
 
 ;; Se presiono click derecho, llamamos a marcar
 (define (marcar matrizActual filaSel colSel)
-  (actualizarEstado matrizActual filaSel colSel 2))
+  (define cell (get-cell matrizActual filaSel colSel))
+  (if (= (second cell) 1) ; ya revelada -> no marcar
+      matrizActual
+      (actualizarEstado matrizActual filaSel colSel 2)))
 

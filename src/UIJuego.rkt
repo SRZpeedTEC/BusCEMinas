@@ -133,10 +133,13 @@
                   [min-height height])
 
        ;; Helper: mostrar bombas como "(1 0 0)" siempre
-       (define (cell->debug-string triple)
-         (if (= (first triple) 1)
-             "(1 0 0)"          ; fuerza visual de bombas
-             (~a triple)))      ; demás celdas igual
+        (define (cell->debug-string triple)
+          (define b (first triple))
+          (define k (second triple)) ; click: 0 oculto, 1 revelado, 2 marcado
+          (define a (third triple))
+          (if (= b 1)
+              (format "(1 ~a ~a)" k a) ; respeta si quedó 1 o 2
+              (~a triple)))
 
        ;; Dibujo
        (define/override (on-paint)
