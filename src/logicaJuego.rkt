@@ -6,9 +6,9 @@
 
 ;; Dificultad -> porcentaje
 (define (difficulty->ratio d)
-  (cond [(or (eq? d 'facil)   (and (string? d) (string-ci=? d "facil")))   0.05]
-        [(or (eq? d 'medio)   (and (string? d) (string-ci=? d "medio")))   0.10]
-        [(or (eq? d 'dificil) (and (string? d) (string-ci=? d "dificil"))) 0.15]
+  (cond [(or (eq? d 'facil)   (and (string? d) (string-ci=? d "facil")))   0.10]
+        [(or (eq? d 'medio)   (and (string? d) (string-ci=? d "medio")))   0.15]
+        [(or (eq? d 'dificil) (and (string? d) (string-ci=? d "dificil"))) 0.20]
         [else (error 'difficulty->ratio (format "Dificultad desconocida: ~a" d))]))
 
 ;; Utilidades tablero (listas)
@@ -106,12 +106,6 @@
   (define-values (with-bombs _spots) (init-bombs/list empty dificultad))
   (rellenar-adyacentes with-bombs)) ;; Se calcula de una vez las adyacencias
 
-(provide difficulty->ratio
-         make-empty-board
-         init-bombs/list
-         crear-tablero-inicial
-         descubrir marcar actualizarEstado)
-
 
 ;; Creamos Matriz (((BOMBA?, ESTADO, ADYACENTES) , (BOMBA?, ESTADO, ADYACENTES)))
 
@@ -164,8 +158,8 @@
   (define cell0 (get-cell board r0 c0))
   (define clk0 (second cell0))
   (cond
-    [(= clk0 1)  ; ya revelada → no hacer nada
-     board]
+    [(= clk0 1)board]  ; ya revelada → no hacer nada
+    [(= clk0 2) board]  ; marcada para no hacer BFS sobre esta porque tiene bandera (implementado por santiago)
     [else
      (define b0 (first cell0))
      (define a0 (third cell0))
@@ -222,3 +216,71 @@
       matrizActual
       (actualizarEstado matrizActual filaSel colSel 2)))
 
+;; Inspeccionar el tablero
+
+(define (row-lost? row)
+  (cond
+    [(null? row) #f]
+    [else
+     (define cell (car row))       ; '(b c a)
+     (cond
+       [(and (= (first cell) 1)    ; bomba
+             (= (second cell) 1))  ; revelada
+        #t]
+       [else (row-lost? (cdr row))])]))
+
+(define (board-lost? board)
+  (cond
+    [(null? board) #f]
+    [else
+     (or (row-lost? (car board))
+         (board-lost? (cdr board)))]))
+
+;; ¿Existe alguna celda segura (b=0) que NO esté revelada (c≠1)?
+(define (row-has-safe-unrevealed? row)
+  (cond
+    [(null? row) #f]
+    [else
+     (define cell (car row))             ; '(b c a)
+     (cond
+       [(= (first cell) 1)               ; bomba -> no cuenta, seguir
+        (row-has-safe-unrevealed? (cdr row))]
+       [(= (second cell) 1)              ; segura y revelada -> seguir
+        (row-has-safe-unrevealed? (cdr row))]
+       [else #t])]))                     ; segura y NO revelada
+
+(define (board-has-safe-unrevealed? board)
+  (cond
+    [(null? board) #f]
+    [else
+     (or (row-has-safe-unrevealed? (car board))
+         (board-has-safe-unrevealed? (cdr board)))]))
+
+;; game-status : Board -> 'playing | 'lost | 'won
+(define (game-status board)
+  (cond
+    [(board-lost? board) 'lost]
+    [(board-has-safe-unrevealed? board) 'playing]
+    [else 'won]))
+
+;; toggle-flag 
+(define (toggle-flag board r c)
+  (define-values (rows cols) (board-dimensions board))
+  (cond
+    [(in-bounds? rows cols r c)
+     (define cell (get-cell board r c))  ; '(b c a)
+     (define k (second cell))
+     (cond
+       [(= k 1) board]                   ; revelada: ignora
+       [(= k 0) (set-click board r c 2)] ; poner bandera
+       [(= k 2) (set-click board r c 0)] ; quitar bandera
+       [else board])]
+    [else board]))
+
+
+(provide difficulty->ratio
+         make-empty-board
+         init-bombs/list
+         crear-tablero-inicial
+         descubrir marcar actualizarEstado
+         game-status toggle-flag)
