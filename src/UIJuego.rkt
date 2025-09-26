@@ -148,7 +148,7 @@
     (abrir-ventana-juego tablero) ; definida en tu módulo/archivo
     (send Menu show #f)))
 
-;; ===== BLOQUE DIFICULTAD =====
+;;BLOQUE DIFICULTAD
 (define diff-panel
   (new vertical-panel%
        [parent menuPanel]
@@ -215,7 +215,7 @@
   (define num-colors
     (vector "blue" "green" "red" "navy" "maroon" "teal" "black" "gray"))
 
-  ;; ===== Helpers de lógica de UI =====
+  ;; Helpers de lógica de UI
   (define (flags-count board)
     (define (row-count row)
       (cond [(null? row) 0]
@@ -279,134 +279,215 @@
       [(= k 2) (draw-flag)]
       [else (tile-raised)]))
 
-  ;;Ventana y paneles
-  (define frame
-    (new frame%
-         [label "Juego - BusCEMinas"]
-         [width (+ WBOARD 200)]
-         [height (max HBOARD 200)]))
+;; Ventana y paneles
 
-  (define main-panel (new horizontal-panel% [parent frame]))
+;;evita que el HUD se desborde en 10x10=320px
+(define compact? (< WBOARD 400))
 
-  ;; HUD
-  (define hud (new vertical-panel% [parent main-panel]
-                                   [alignment '(center center)]
-                                   [min-width 200]
-                                   [stretchable-width #f]))
-  
-  (define lbl-status (new message% [parent hud] [label "En juego"] [auto-resize #t]))
-  (define lbl-timer  (new message% [parent hud] [label "Tiempo: 00:00"] [auto-resize #t]))
-  (define lbl-flags  (new message% [parent hud] [label "Banderas: 0"] [auto-resize #t]))
+(define frame
+  (new frame%
+       [label "Juego - BusCEMinas"]
+       [width WBOARD]                     
+       [style '(no-resize-border)]))
 
-  ;;Timer
-  (define elapsed 0)
-  (define running? #f)
-  (define (fmt-mm:ss s)
-    (define m  (quotient s 60))
-    (define ss (remainder s 60))
-    (format "Tiempo: ~a:~a"
-            (~a m  #:min-width 2 #:align 'right #:pad-string "0")
-            (~a ss #:min-width 2 #:align 'right #:pad-string "0")))
-  (define timer
-    (new timer%
-         [notify-callback
-          (λ ()
-            (when running?
-              (set! elapsed (add1 elapsed))
-              (send lbl-timer set-label (fmt-mm:ss elapsed))))]))
-  ;; corre cada segundo;
-  (send timer start 1000)
 
-  (define (start-timer!) (set! running? #t))
-  (define (stop-timer!)  (set! running? #f))
-  (define (reset-timer!)
-    (set! elapsed 0)
-    (set! running? #f)
-    (send lbl-timer set-label (fmt-mm:ss elapsed)))
+;; Contenedor raíz en columna: arriba HUD, abajo tablero
+(define main-root
+  (new vertical-panel%
+       [parent frame]
+       [stretchable-width #t]
+       [stretchable-height #t]
+       [spacing 4]))
 
-  (new button%
+;; Wrap NO estirable que centra el HUD y NO fuerza ancho del frame
+(define hud-wrap
+  (new horizontal-panel%
+       [parent main-root]
+       [alignment '(center center)]
+       [stretchable-width #t]
+       [stretchable-height #f]))
+
+;; ---------- HUD (horizontal, centrado, no-estirable) ----------
+(define hud
+  (new horizontal-panel%
+       [parent hud-wrap]
+       [alignment '(center center)]
+       [stretchable-width #f]            
+       [stretchable-height #f]
+       [spacing (if compact? 8 16)]))
+
+(define hud-font (make-object font% (if compact? 12 14) 'modern 'normal 'bold))
+
+(define lbl-status
+  (new message%
        [parent hud]
-       [label "Nueva partida"]
-       [callback
-        (λ (_btn _evt)
-          (stop-timer!)
-          (send frame show #f)
-          (send Menu show #t))])
+       [label (if compact? "En juego" "En juego")]
+       [auto-resize #f] [font hud-font]))
 
-  ;; Canvas del tablero
-  (define board-canvas
-    (new
-     (class canvas%
-       (super-new [parent main-panel]
-                  [min-width WBOARD]
-                  [min-height HBOARD])
+;; separador vertical fino
+(when (not compact?)
+  (new canvas% [parent hud] [min-width 1] [min-height 18]
+       [paint-callback (λ (c dc) (send dc set-pen "gray" 1 'solid)
+                                 (send dc draw-line 0 0 0 18))]))
 
-       (field [tablero-actual tablero0])
-       (field [estado-actual  (game-status tablero0)])
+(define lbl-timer
+  (new message%
+       [parent hud]
+       [label (if compact? "T: 00:00" "Tiempo: 00:00")]
+       [auto-resize #f] [font hud-font]))
 
-       (define/public (tablero) tablero-actual)
-       (define/public (estado)  estado-actual)
+(when (not compact?)
+  (new canvas% [parent hud] [min-width 1] [min-height 18]
+       [paint-callback (λ (c dc) (send dc set-pen "gray" 1 'solid)
+                                 (send dc draw-line 0 0 0 18))]))
 
-       (define/public (reset! new-board)
-         (set! tablero-actual new-board)
+(define lbl-flags
+  (new message%
+       [parent hud]
+       [label (if compact? "B: 0" "Banderas: 0")]
+       [auto-resize #f] [font hud-font]))
+
+;; Botón pequeño para que quepa en 320 px si es necesario
+(new button%
+     [parent hud]
+     [label (if compact? "Nuevo" "Nueva partida")]
+     [callback (λ (_btn _evt)
+                 (stop-timer!)
+                 (send frame show #f)
+                 (send Menu show #t))])
+
+;; ---------- Timer ----------
+(define elapsed 0)
+(define running? #f)
+
+(define (fmt-mm:ss s)
+  (define m  (quotient s 60))
+  (define ss (remainder s 60))
+  (format "~a ~a:~a"
+          (if compact? "T:" "Tiempo:")
+          (~a m  #:min-width 2 #:align 'right #:pad-string "0")
+          (~a ss #:min-width 2 #:align 'right #:pad-string "0")))
+
+(define timer
+  (new timer%
+       [notify-callback
+        (λ ()
+          (when running?
+            (set! elapsed (add1 elapsed))
+            (send lbl-timer set-label (fmt-mm:ss elapsed))))]))
+(send timer start 1000)
+
+(define (start-timer!) (set! running? #t))
+(define (stop-timer!)  (set! running? #f))
+(define (reset-timer!)
+  (set! elapsed 0)
+  (set! running? #f)
+  (send lbl-timer set-label (fmt-mm:ss elapsed)))
+
+;; ---------- Contenedor del tablero, centrado abajo ----------
+(define board-row
+  (new horizontal-panel%
+       [parent main-root]
+       [alignment '(center center)]
+       [stretchable-width #t]
+       [stretchable-height #t]))
+
+(new horizontal-panel% [parent board-row] [stretchable-width #t])
+
+
+(define board-canvas
+  (new
+   (class canvas%
+     (super-new [parent board-row]
+                [min-width WBOARD]
+                [min-height HBOARD])
+
+     (field [tablero-actual tablero0])
+     (field [estado-actual  (game-status tablero0)])
+
+     (define/public (tablero) tablero-actual)
+     (define/public (estado)  estado-actual)
+
+     (define/public (reset! new-board)
+       (set! tablero-actual new-board)
+       (set! estado-actual (game-status tablero-actual))
+       (reset-timer!)
+       (send this refresh)
+       (send lbl-status set-label "En juego")
+       (send lbl-flags set-label
+             (format "~a ~a"
+                     (if compact? "B:" "Banderas:")
+                     (flags-count tablero-actual))))
+
+     (define/override (on-paint)
+       (define dc (send this get-dc))
+
+       
+       
+       ;; pinta TODO el canvas del mismo color
+       (send dc set-brush "black" 'solid)
+       (send dc set-pen "black" 0 'transparent)
+       (send dc draw-rectangle 0 0 (send this get-width) (send this get-height))
+
+       ;; Rellena solo el área del tablero
+       (send dc set-brush "black" 'solid)
+       (send dc set-pen "black" 1 'solid)
+       (send dc draw-rectangle 0 0 WBOARD HBOARD)
+
+       ;; Dibuja celdas
+       (for* ([r (in-range filas)] [c (in-range cols)])
+         (define triple (list-ref (list-ref tablero-actual r) c))
+         (draw-cell dc c r triple estado-actual))
+
+       ;; Dibuja las líneas de la cuadrícula
+       (send dc set-pen "gray" 1 'solid)
+       (for ([x (in-range 0 (+ WBOARD 1) CELL)])
+         (send dc draw-line x 0 x HBOARD))
+       (for ([y (in-range 0 (+ HBOARD 1) CELL)])
+         (send dc draw-line 0 y WBOARD y)))
+
+     (define (aplicar-jugada! nuevo)
+       (when (not (equal? nuevo tablero-actual))
+         (set! tablero-actual nuevo)
          (set! estado-actual (game-status tablero-actual))
-         (reset-timer!)
-         (send this refresh)
-         (send lbl-status set-label "En juego")
+         (cond
+           [(eq? estado-actual 'lost)
+            (stop-timer!)
+            (send lbl-status set-label "¡Boom! Perdiste")]
+           [(eq? estado-actual 'won)
+            (stop-timer!)
+            (send lbl-status set-label "¡Ganaste!")]
+           [else
+            (send lbl-status set-label "En juego")])
          (send lbl-flags set-label
-               (format "Banderas: ~a" (flags-count tablero-actual))))
+               (format "~a ~a"
+                       (if compact? "B:" "Banderas:")
+                       (flags-count tablero-actual)))
+         (send this refresh)))
 
-       (define/override (on-paint)
-         (define dc (send this get-dc))
-         (send dc set-brush "black" 'transparent)
-         (send dc set-pen "black" 1 'solid)
-         (send dc draw-rectangle 0 0 WBOARD HBOARD)
-         (for* ([r (in-range filas)] [c (in-range cols)])
-           (define triple (list-ref (list-ref tablero-actual r) c))
-           (draw-cell dc c r triple estado-actual))
-         (send dc set-pen "gray" 1 'solid)
-         (for ([x (in-range 0 (+ WBOARD 1) CELL)])
-           (send dc draw-line x 0 x HBOARD))
-         (for ([y (in-range 0 (+ HBOARD 1) CELL)])
-           (send dc draw-line 0 y WBOARD y)))
-
-       (define (aplicar-jugada! nuevo)
-         (when (not (equal? nuevo tablero-actual))
-           (set! tablero-actual nuevo)
-           (set! estado-actual (game-status tablero-actual))
+     (define/override (on-event e)
+       (define t (send e get-event-type))
+       (when (and (eq? estado-actual 'playing)
+                  (or (eq? t 'left-down) (eq? t 'right-down)))
+         (unless running? (start-timer!))
+         (define mx (send e get-x))
+         (define my (send e get-y))
+         (when (and (<= 0 mx) (< mx WBOARD) (<= 0 my) (< my HBOARD))
+           (define c (quotient mx CELL))
+           (define r (quotient my CELL))
            (cond
-             [(eq? estado-actual 'lost)
-              (stop-timer!)
-              (send lbl-status set-label "¡Boom! Perdiste")]
-             [(eq? estado-actual 'won)
-              (stop-timer!)
-              (send lbl-status set-label "¡Ganaste!")]
-             [else
-              (send lbl-status set-label "En juego")])
-           (send lbl-flags set-label
-                 (format "Banderas: ~a" (flags-count tablero-actual)))
-           (send this refresh)))
+             [(eq? t 'left-down)
+              (aplicar-jugada! (descubrir tablero-actual r c))]
+             [(eq? t 'right-down)
+              (aplicar-jugada! (toggle-flag tablero-actual r c))])))))))
+  
+(new horizontal-panel% [parent board-row] [stretchable-width #t])
 
-       (define/override (on-event e)
-         (define t (send e get-event-type))
-         (when (and (eq? estado-actual 'playing)
-                    (or (eq? t 'left-down) (eq? t 'right-down)))
-           (unless running? (start-timer!))
-           (define mx (send e get-x))
-           (define my (send e get-y))
-           (when (and (<= 0 mx) (< mx WBOARD) (<= 0 my) (< my HBOARD))
-             (define c (quotient mx CELL))
-             (define r (quotient my CELL))
-             (cond
-               [(eq? t 'left-down)
-                (aplicar-jugada! (descubrir tablero-actual r c))]
-               [(eq? t 'right-down)
-                (aplicar-jugada! (toggle-flag tablero-actual r c))])))))))
+;; Inicializa labels dependientes del tablero
+(send lbl-flags set-label
+      (format "~a ~a" (if compact? "B:" "Banderas:")
+              (flags-count (send board-canvas tablero))))
+(reset-timer!)
 
-  ;; Inicializa labels dependientes del tablero
-  (send lbl-flags set-label
-        (format "Banderas: ~a" (flags-count (send board-canvas tablero))))
-  (reset-timer!)
-
-  (send frame show #t)
-  frame)
+(send frame show #t)
+frame)
