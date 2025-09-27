@@ -1,24 +1,22 @@
 #lang racket
 #| LOGICA DEL JUEGO |#
 
-;; ---------------------------
+;; --------Logica creacion matriz y bombas --------
 ;; Dificultad -> porcentaje
-;; ---------------------------
 (define (dificultad->ratio dif)
   (cond [(or (eq? dif 'facil)   (and (string? dif) (string-ci=? dif "facil")))   0.10]
         [(or (eq? dif 'medio)   (and (string? dif) (string-ci=? dif "medio")))   0.15]
         [(or (eq? dif 'dificil) (and (string? dif) (string-ci=? dif "dificil"))) 0.20]
         [else (error 'dificultad->ratio (format "Dificultad desconocida: ~a" dif))]))
 
-;; ---------------------------
+
 ;; Utilidades tablero (listas)
-;; ---------------------------
 (define (dimensionesMatriz matriz)
   (values (length matriz)
           (cond [(null? matriz) 0]
                 [else (length (car matriz))])))
 
-;; filas de '(0 0 0), recursivo
+;; filas de '(0 0 0)
 (define (crearFilas cols)
   (cond [(= cols 0) '()]
         [else (cons (list 0 0 0) (crearFilas (sub1 cols)))]))
@@ -28,10 +26,7 @@
         [else (cons (crearFilas cols)
                     (crearMatrizVacia (sub1 filas) cols))]))
 
-;; ---------------------------
-;; Posiciones y cantidad
-;; ---------------------------
-;; genera ((0 . 0) (0 . 1) ... (fila . c)) sin for
+;; Posiciones y cantidad de bombas
 (define (posiciones filas cols)
   (define (posicionesFilas fila col)
     (cond [(= col cols) '()]
@@ -49,10 +44,8 @@
   (cond [(<= total 1) 0]
         [else (max 1 (min (- total 1) n))]))
 
-;; ---------------------------
-;; Helpers de listas básicas
-;; ---------------------------
-;; reemplaza el elemento n-ésimo por val (versión inmutable)
+
+;; reemplazar el elemento n-ésimo por valores 
 (define (replace-nth lst n val)
   (cond [(null? lst) '()]
         [(= n 0) (cons val (cdr lst))]
@@ -66,10 +59,7 @@
         [else (cons (car lst)
                     (remove-nth (cdr lst) (sub1 n)))]))
 
-;; ---------------------------
-;; Selección aleatoria sin shuffle/take (PRNG global de Racket)
-;; ---------------------------
-;; elige k elementos únicos de una lista, extrayéndolos por índice y removiendo
+;; randomizacion de posiciones de bombas
 (define (pick-k-from lst k)
   (cond [(or (= k 0) (null? lst)) '()]
         [else
@@ -80,9 +70,7 @@
 (define (agarrarPosicion filas cols k)
   (pick-k-from (posiciones filas cols) k))
 
-;; ---------------------------
-;; Helpers de tablero (puros)
-;; ---------------------------
+
 (define (obtenerCelda matriz fila col)
   (list-ref (list-ref matriz fila) col))
 
@@ -95,9 +83,8 @@
   (define celda (obtenerCelda matriz fila col)) ; '(b c a)
   (setCelda matriz fila col (list (car celda) val (caddr celda))))
 
-;; ---------------------------
-;; Colocar bombas (sin sets)
-;; ---------------------------
+
+;; Colocar bombas 
 (define (posicionEnMatriz? rc pos)
   (cond [(null? pos) #f]
         [(equal? (car pos) rc) #t]
@@ -118,9 +105,8 @@
                       (mapearMatriz (cdr b) (add1 fila)))]))
   (mapearMatriz matriz 0))
 
-;; ---------------------------
+
 ;; Vecinos y adyacentes
-;; ---------------------------
 (define vecinos
   '((-1 -1) (-1 0) (-1 1)
     ( 0 -1)         ( 0 1)
@@ -130,7 +116,7 @@
 (define (in-bounds? filas cols fila c)
   (and (dentroRango fila 0 filas) (dentroRango c 0 cols)))
 
-;; suma adyacentes con recursión (sin for/sum)
+;; suma adyacentes
 (define (adyacenciaBombas matriz fila c)
   (define-values (filas cols) (dimensionesMatriz matriz))
   (define (loop ds)
@@ -147,7 +133,7 @@
            (+ here (loop (cdr ds)))]))
   (loop vecinos))
 
-;; recalcula el 3er campo (ady) para todo el tablero, recursivo
+;; se recalcula el 3er campo (ady) para todo el tablero
 (define (rellenar-adyacentes matriz)
   (define-values (filas cols) (dimensionesMatriz matriz))
   (define (loopFila fila c acc-row)
@@ -166,9 +152,7 @@
                        (cons (loopFila fila 0 '()) acc-matriz))]))
   (loopMatriz 0 '()))
 
-;; ---------------------------
-;; Pipeline inicial (API)
-;; ---------------------------
+;; inicializar bombas en matriz vacia
 (define (inicializarBombas matriz dificultad)
   (define-values (filas cols) (dimensionesMatriz matriz))
   (define ratio (dificultad->ratio dificultad))
@@ -178,13 +162,10 @@
 
 (define (crear-tablero-inicial dificultad filas cols)
   (define empty (crearMatrizVacia filas cols))
-  (define-values (with-bombs _spots) (inicializarBombas empty dificultad))
-  (rellenar-adyacentes with-bombs))
+  (define-values (celdaConBomba _spots) (inicializarBombas empty dificultad))
+  (rellenar-adyacentes celdaConBomba))
 
-
-
-;; Creamos Matriz (((BOMBA?, ESTADO, ADYACENTES) , (BOMBA?, ESTADO, ADYACENTES)))
-
+;;----------Logica de modificacion del tablero/matriz ----------
 
 ;; dentroRango : n min max  -> #t si min <= n < max
 (define (dentroRango n minimo maximo)
@@ -225,9 +206,6 @@
 
 
 ;; Se presiono click izquierdo, llamamos a descubrir
-;; ----------------------------------------
-;; Helpers de posiciones (listas puras)
-;; ----------------------------------------
 (define (pos-eq? p q)
   (and (= (car p) (car q)) (= (cdr p) (cdr q))))
 
@@ -236,28 +214,23 @@
         [(pos-eq? p (car pos)) #t]
         [else (pos-member? p (cdr pos))]))
 
-;; ----------------------------------------
-;; Revelar usando actualizarEstado (puro)
-;; ----------------------------------------
+;; Revelar casillas 
 (define (revelar matriz fila c)
-  ;; pone estado = 1 en (fila,c) usando tu primitiva inmutable
+  ;; pone estado = 1 en (fila,c)
   (actualizarEstado matriz fila c 1))
 
-;; ----------------------------------------
-;; Descubrir (puro), usando actualizarEstado
+
+;; Descubrir usando logica BFS
 ;;  - no actúa si clk=1 (revelada) o clk=2 (marcada)
 ;;  - si hay bomba, revela solo esa
 ;;  - si ady>0, revela solo esa
-;;  - si ady=0, expande (flood-fill) vecinos seguros,
-;;    revelando ceros y bordes numéricos.
-;; 100% recursivo, sin for/while ni sets.
-;; ----------------------------------------
+;;  - si ady=0, expande vecinos seguros,
 (define (descubrir matriz r0 c0)
   (define celda0 (obtenerCelda matriz r0 c0))
   (define clk0  (second celda0))
   (cond
-    [(= clk0 1) matriz]   ; ya revelada → no hacer nada
-    [(= clk0 2) matriz]   ; marcada → no expandir ni revelar
+    [(= clk0 1) matriz]   ; ya revelada, no hacer nada
+    [(= clk0 2) matriz]   ; marcada, no expandir ni revelar
     [else
      (define b0 (first celda0))
      (define a0 (third celda0))
@@ -265,7 +238,7 @@
        [(= b0 1) (revelar matriz r0 c0)] ; bomba: revelar solo esa
        [(> a0 0) (revelar matriz r0 c0)] ; número: revelar solo esa
        [else
-        ;; a0 = 0 → expansión (cola y visitados como listas)
+        ;; a0 = 0, expansión (cola y visitados como listas)
         (define (expansionBFS ds fila c Bacc Vacc enq)
           (cond
             [(null? ds) (list Bacc Vacc enq)]
@@ -320,7 +293,7 @@
 (define (marcar matrizActual filaSel colSel)
   (define celda (obtenerCelda matrizActual filaSel colSel))
   (cond
-    [(= (second celda) 1) matrizActual] ; ya revelada → no marcar
+    [(= (second celda) 1) matrizActual] ; ya revelada, no marcar
     [else (actualizarEstado matrizActual filaSel colSel 2)]))
 
 ;; Inspeccionar el tablero
@@ -350,9 +323,9 @@
     [else
      (define celda (car fila))             ; '(b c a)
      (cond
-       [(= (first celda) 1)               ; bomba -> no cuenta, seguir
+       [(= (first celda) 1)               ; bomba, no cuenta, seguir
         (filaRevelada (cdr fila))]
-       [(= (second celda) 1)              ; segura y revelada -> seguir
+       [(= (second celda) 1)              ; segura y revelada, seguir
         (filaRevelada (cdr fila))]
        [else #t])]))                     ; segura y NO revelada
 
