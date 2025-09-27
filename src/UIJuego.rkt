@@ -334,7 +334,7 @@
   (new message%
        [parent hud]
        [label (if compact? "T: 00:00" "Tiempo: 00:00")]
-       [auto-resize #f] [font hud-font]))
+       [auto-resize #t] [font hud-font]))
 
 (when (not compact?)
   (new canvas% [parent hud] [min-width 1] [min-height 18]
@@ -344,8 +344,8 @@
 (define lbl-flags
   (new message%
        [parent hud]
-       [label (if compact? "B: 0" "Banderas: 0")]
-       [auto-resize #f] [font hud-font]))
+       [label (if compact? "B: 00" "Banderas: 00")]
+       [auto-resize #t] [font hud-font]))
 
 ;; Botón pequeño para que quepa en 320 px si es necesario
 (new button%

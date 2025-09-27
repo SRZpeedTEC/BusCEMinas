@@ -1,110 +1,186 @@
 #lang racket
 #| LOGICA DEL JUEGO |#
 
-(require racket/list
-         racket/set)
-
+;; ---------------------------
 ;; Dificultad -> porcentaje
-(define (difficulty->ratio d)
-  (cond [(or (eq? d 'facil)   (and (string? d) (string-ci=? d "facil")))   0.10]
-        [(or (eq? d 'medio)   (and (string? d) (string-ci=? d "medio")))   0.15]
-        [(or (eq? d 'dificil) (and (string? d) (string-ci=? d "dificil"))) 0.20]
-        [else (error 'difficulty->ratio (format "Dificultad desconocida: ~a" d))]))
+;; ---------------------------
+(define (dificultad->ratio dif)
+  (cond [(or (eq? dif 'facil)   (and (string? dif) (string-ci=? dif "facil")))   0.10]
+        [(or (eq? dif 'medio)   (and (string? dif) (string-ci=? dif "medio")))   0.15]
+        [(or (eq? dif 'dificil) (and (string? dif) (string-ci=? dif "dificil"))) 0.20]
+        [else (error 'dificultad->ratio (format "Dificultad desconocida: ~a" dif))]))
 
+;; ---------------------------
 ;; Utilidades tablero (listas)
-(define (board-dimensions board)
-  (values (length board)
-          (if (null? board) 0 (length (first board)))))
+;; ---------------------------
+(define (dimensionesMatriz matriz)
+  (values (length matriz)
+          (cond [(null? matriz) 0]
+                [else (length (car matriz))])))
 
-(define (make-empty-board rows cols)
-  (for/list ([r (in-range rows)])
-    (for/list ([c (in-range cols)])
-      (list 0 0 0)))) ; '(bomba click adyacentes)
+;; filas de '(0 0 0), recursivo
+(define (crearFilas cols)
+  (cond [(= cols 0) '()]
+        [else (cons (list 0 0 0) (crearFilas (sub1 cols)))]))
 
+(define (crearMatrizVacia rows cols)
+  (cond [(= rows 0) '()]
+        [else (cons (crearFilas cols)
+                    (crearMatrizVacia (sub1 rows) cols))]))
+
+;; ---------------------------
 ;; Posiciones y cantidad
+;; ---------------------------
+;; genera ((0 . 0) (0 . 1) ... (r . c)) sin for
 (define (all-positions rows cols)
-  (for*/list ([r (in-range rows)]
-              [c (in-range cols)])
-    (cons r c)))
+  (define (row-positions r c)
+    (cond [(= c cols) '()]
+          [else (cons (cons r c)
+                      (row-positions r (add1 c)))]))
+  (define (rows-loop r)
+    (cond [(= r rows) '()]
+          [else (append (row-positions r 0)
+                        (rows-loop (add1 r)))]))
+  (rows-loop 0))
 
 (define (num-bombs rows cols ratio)
   (define total (* rows cols))
   (define n (inexact->exact (floor (* ratio total))))
   (cond [(<= total 1) 0]
-        [else (max 1 (min (- total 1) n))])) ; al menos 1, deja 1 libre
+        [else (max 1 (min (- total 1) n))]))
+
+;; ---------------------------
+;; Helpers de listas básicas
+;; ---------------------------
+;; reemplaza el elemento n-ésimo por val (versión inmutable)
+(define (replace-nth lst n val)
+  (cond [(null? lst) '()]
+        [(= n 0) (cons val (cdr lst))]
+        [else (cons (car lst)
+                    (replace-nth (cdr lst) (sub1 n) val))]))
+
+;; elimina el elemento n-ésimo
+(define (remove-nth lst n)
+  (cond [(null? lst) '()]
+        [(= n 0) (cdr lst)]
+        [else (cons (car lst)
+                    (remove-nth (cdr lst) (sub1 n)))]))
+
+;; ---------------------------
+;; Selección aleatoria sin shuffle/take (PRNG global de Racket)
+;; ---------------------------
+;; elige k elementos únicos de una lista, extrayéndolos por índice y removiendo
+(define (pick-k-from lst k)
+  (cond [(or (= k 0) (null? lst)) '()]
+        [else
+         (define idx (random (length lst)))
+         (define x   (list-ref lst idx))
+         (cons x (pick-k-from (remove-nth lst idx) (sub1 k)))]))
 
 (define (pick-positions rows cols k)
-  (take (shuffle (all-positions rows cols)) k))
+  (pick-k-from (all-positions rows cols) k))
 
-;; Helpers de tablero (listas, puros)
+;; ---------------------------
+;; Helpers de tablero (puros)
+;; ---------------------------
 (define (get-cell board r c)
   (list-ref (list-ref board r) c))
 
 (define (set-cell board r c new)
-  ;; devuelve un NUEVO board con (r,c) reemplazado por 'new'
-  (define row (list-ref board r))
-  (define new-row
-    (append (take row c) (list new) (drop row (add1 c))))
-  (append (take board r) (list new-row) (drop board (add1 r))))
+  (define row     (list-ref board r))
+  (define new-row (replace-nth row c new))
+  (replace-nth board r new-row))
 
 (define (set-click board r c val)
-  ;; cambia el segundo campo (click) a val en (r,c)
   (define cell (get-cell board r c)) ; '(b c a)
-  (set-cell board r c (list (first cell) val (third cell))))
+  (set-cell board r c (list (car cell) val (caddr cell))))
 
+;; ---------------------------
+;; Colocar bombas (sin sets)
+;; ---------------------------
+(define (pos-in-list? rc ps)
+  (cond [(null? ps) #f]
+        [(equal? (car ps) rc) #t]
+        [else (pos-in-list? rc (cdr ps))]))
 
-;; Colocar bombas (puro)
-;; Cualquiera de estas posiciones queda exactamente '(1 0 0)
 (define (place-bombs/list board bomb-positions)
-  (define pos-set (list->set bomb-positions)) ; equal?-set
-  (for/list ([row board] [r (in-naturals)])
-    (for/list ([cell row] [c (in-naturals)])
-      (if (set-member? pos-set (cons r c))
-          (list 1 0 0)
-          cell))))
+  (define (map-row row r c)
+    (cond [(null? row) '()]
+          [else
+           (define cell (car row))
+           (define new-cell
+             (cond [(pos-in-list? (cons r c) bomb-positions) (list 1 0 0)]
+                   [else cell]))
+           (cons new-cell (map-row (cdr row) r (add1 c)))]))
+  (define (map-board b r)
+    (cond [(null? b) '()]
+          [else (cons (map-row (car b) r 0)
+                      (map-board (cdr b) (add1 r)))]))
+  (map-board board 0))
 
+;; ---------------------------
 ;; Vecinos y adyacentes
+;; ---------------------------
 (define neighbors-deltas
   '((-1 -1) (-1 0) (-1 1)
     ( 0 -1)         ( 0 1)
     ( 1 -1) ( 1 0)  ( 1 1)))
 
+
 (define (in-bounds? rows cols r c)
   (and (in-range? r 0 rows) (in-range? c 0 cols)))
 
+;; suma adyacentes con recursión (sin for/sum)
 (define (adjacent-bombs board r c)
-  (define-values (rows cols) (board-dimensions board))
-  (for/sum ([d neighbors-deltas])
-    (define rr (+ r (first d)))
-    (define cc (+ c (second d)))
-    (if (and (in-bounds? rows cols rr cc)
-             (= (first (get-cell board rr cc)) 1)) ; bomba?
-        1 0)))
+  (define-values (rows cols) (dimensionesMatriz board))
+  (define (loop ds)
+    (cond [(null? ds) 0]
+          [else
+           (define d  (car ds))
+           (define rr (+ r (car d)))
+           (define cc (+ c (cadr d)))
+           (define here
+             (cond [(and (in-bounds? rows cols rr cc)
+                         (= (car (get-cell board rr cc)) 1))
+                    1]
+                   [else 0]))
+           (+ here (loop (cdr ds)))]))
+  (loop neighbors-deltas))
 
+;; recalcula el 3er campo (ady) para todo el tablero, recursivo
 (define (rellenar-adyacentes board)
-  ;; Devuelve board con el 3er campo (ady) calculado para TODAS las celdas
-  (define-values (rows cols) (board-dimensions board))
-  (for/list ([r (in-range rows)])
-    (for/list ([c (in-range cols)])
-      (define cell (get-cell board r c)) ; '(b c a)
-      (define b (first  cell))
-      (define c2 (second cell))
-      (define a (if (= b 1) 0 (adjacent-bombs board r c))) ; bombas mantienen 0
-      (list b c2 a))))
+  (define-values (rows cols) (dimensionesMatriz board))
+  (define (row-loop r c acc-row)
+    (cond [(= c cols) (reverse acc-row)]
+          [else
+           (define cell (get-cell board r c)) ; '(b k a)
+           (define b (car cell))
+           (define k (cadr cell))
+           (define a (cond [(= b 1) 0]
+                           [else (adjacent-bombs board r c)]))
+           (row-loop r (add1 c) (cons (list b k a) acc-row))]))
+  (define (board-loop r acc-board)
+    (cond [(= r rows) (reverse acc-board)]
+          [else
+           (board-loop (add1 r)
+                       (cons (row-loop r 0 '()) acc-board))]))
+  (board-loop 0 '()))
 
-
-;; Devuelve (values nuevo-tablero lista-de-posiciones)
+;; ---------------------------
+;; Pipeline inicial (API)
+;; ---------------------------
 (define (init-bombs/list board dificultad)
-  (define-values (rows cols) (board-dimensions board))
-  (define ratio (difficulty->ratio dificultad))
+  (define-values (rows cols) (dimensionesMatriz board))
+  (define ratio (dificultad->ratio dificultad))
   (define k     (num-bombs rows cols ratio))
   (define spots (pick-positions rows cols k))
   (values (place-bombs/list board spots) spots))
 
 (define (crear-tablero-inicial dificultad rows cols)
-  (define empty (make-empty-board rows cols))
+  (define empty (crearMatrizVacia rows cols))
   (define-values (with-bombs _spots) (init-bombs/list empty dificultad))
-  (rellenar-adyacentes with-bombs)) ;; Se calcula de una vez las adyacencias
+  (rellenar-adyacentes with-bombs))
+
 
 
 ;; Creamos Matriz (((BOMBA?, ESTADO, ADYACENTES) , (BOMBA?, ESTADO, ADYACENTES)))
@@ -149,72 +225,103 @@
 
 
 ;; Se presiono click izquierdo, llamamos a descubrir
-;; Revela una celda (2º campo = 1)
-(define (revelar board r c)
-  (set-click board r c 1))
+;; ----------------------------------------
+;; Helpers de posiciones (listas puras)
+;; ----------------------------------------
+(define (pos-eq? p q)
+  (and (= (car p) (car q)) (= (cdr p) (cdr q))))
 
-;; DESCUBRIR: permite descubrir aunque esté marcada (clk=2). Solo bloquea si ya está revelada (clk=1).
+(define (pos-member? p ps)
+  (cond [(null? ps) #f]
+        [(pos-eq? p (car ps)) #t]
+        [else (pos-member? p (cdr ps))]))
+
+;; ----------------------------------------
+;; Revelar usando actualizarEstado (puro)
+;; ----------------------------------------
+(define (revelar board r c)
+  ;; pone estado = 1 en (r,c) usando tu primitiva inmutable
+  (actualizarEstado board r c 1))
+
+;; ----------------------------------------
+;; Descubrir (puro), usando actualizarEstado
+;;  - no actúa si clk=1 (revelada) o clk=2 (marcada)
+;;  - si hay bomba, revela solo esa
+;;  - si ady>0, revela solo esa
+;;  - si ady=0, expande (flood-fill) vecinos seguros,
+;;    revelando ceros y bordes numéricos.
+;; 100% recursivo, sin for/while ni sets.
+;; ----------------------------------------
 (define (descubrir board r0 c0)
   (define cell0 (get-cell board r0 c0))
-  (define clk0 (second cell0))
+  (define clk0  (second cell0))
   (cond
-    [(= clk0 1)board]  ; ya revelada → no hacer nada
-    [(= clk0 2) board]  ; marcada para no hacer BFS sobre esta porque tiene bandera (implementado por santiago)
+    [(= clk0 1) board]   ; ya revelada → no hacer nada
+    [(= clk0 2) board]   ; marcada → no expandir ni revelar
     [else
      (define b0 (first cell0))
      (define a0 (third cell0))
      (cond
-       [(= b0 1)
-        (revelar board r0 c0)]                  ; clic en bomba (manejo de perder aparte)
-
-       [(> a0 0)
-        (revelar board r0 c0)]                  ; número > 0: solo esa
-
+       [(= b0 1) (revelar board r0 c0)] ; bomba: revelar solo esa
+       [(> a0 0) (revelar board r0 c0)] ; número: revelar solo esa
        [else
-        ;; a0 = 0 → BFS con visitados (sin recalcular adyacentes)
-        (let loop ((queue   (list (cons r0 c0)))
-                   (visited (set (cons r0 c0)))
-                   (B       (revelar board r0 c0)))
+        ;; a0 = 0 → expansión (cola y visitados como listas)
+        (define (process-deltas ds r c Bacc Vacc enq)
+          (cond
+            [(null? ds) (list Bacc Vacc enq)]
+            [else
+             (define d  (car ds))
+             (define rr (+ r (car d)))
+             (define cc (+ c (cadr d)))
+             (define step
+               (cond
+                 [(not (in-bounds? (car (call-with-values (lambda () (dimensionesMatriz Bacc)) list))
+                                   (cadr (call-with-values (lambda () (dimensionesMatriz Bacc)) list))
+                                   rr cc))
+                  (list Bacc Vacc enq)]
+                 [else
+                  (define cellN (get-cell Bacc rr cc))
+                  (define b (first  cellN))
+                  (define k (second cellN))
+                  (define a (third  cellN))
+                  (cond
+                    [(= b 1) (list Bacc Vacc enq)]
+                    [(or (= k 1) (pos-member? (cons rr cc) Vacc))
+                     (list Bacc Vacc enq)]
+                    [else
+                     (define B2 (actualizarEstado Bacc rr cc 1)) ; revelar vecino
+                     (define V2 (cons (cons rr cc) Vacc))
+                     (cond
+                       [(= a 0) (list B2 V2 (cons (cons rr cc) enq))] ; encola ceros
+                       [else    (list B2 V2 enq)])])]))
+             (process-deltas (cdr ds)
+                             r c
+                             (car  step)
+                             (cadr step)
+                             (caddr step))]))
+
+        (define (loop queue visited B)
           (cond
             [(null? queue) B]
             [else
-             (define r (car (car queue)))
-             (define c (cdr (car queue)))
-             (define-values (rows cols) (board-dimensions B))
+             (define r (car  (car queue)))
+             (define c (cdr  (car queue)))
+             (define triple (process-deltas neighbors-deltas r c B visited '()))
+             (loop (append (cdr queue) (reverse (caddr triple)))
+                   (cadr triple)
+                   (car  triple))]))
 
-             (let-values ([(B1 V1 tail)
-                           (for/fold ([Bacc B] [Vacc visited] [tail '()])
-                                     ([d neighbors-deltas])
-                             (define rr (+ r (first d)))
-                             (define cc (+ c (second d)))
-                             (cond
-                               [(not (in-bounds? rows cols rr cc))
-                                (values Bacc Vacc tail)]
-                               [else
-                                (define cellN (get-cell Bacc rr cc))
-                                (define b (first  cellN))
-                                (define k (second cellN))
-                                (define a (third  cellN))
-                                (cond
-                                  [(= b 1)
-                                   (values Bacc Vacc tail)]               ; bomba: no revelar
-                                  [(or (= k 1) (set-member? Vacc (cons rr cc)))
-                                   (values Bacc Vacc tail)]               ; ya revelada/visitada
-                                  [else
-                                   (define Brev (revelar Bacc rr cc))
-                                   (if (= a 0)
-                                       (values Brev (set-add Vacc (cons rr cc))
-                                               (cons (cons rr cc) tail))  ; encola ceros
-                                       (values Brev (set-add Vacc (cons rr cc)) tail))])]))])
-               (loop (append (cdr queue) (reverse tail)) V1 B1))]))])]))
+        (loop (list (cons r0 c0))
+              (list (cons r0 c0))
+              (revelar board r0 c0))])]))
 
 
 ;; Se presiono click derecho, llamamos a marcar
 (define (marcar matrizActual filaSel colSel)
   (define cell (get-cell matrizActual filaSel colSel))
-  (if (= (second cell) 1) ; ya revelada -> no marcar
-      matrizActual
-      (actualizarEstado matrizActual filaSel colSel 2)))
+  (cond
+    [(= (second cell) 1) matrizActual] ; ya revelada → no marcar
+    [else (actualizarEstado matrizActual filaSel colSel 2)]))
 
 ;; Inspeccionar el tablero
 
@@ -265,7 +372,7 @@
 
 ;; toggle-flag 
 (define (toggle-flag board r c)
-  (define-values (rows cols) (board-dimensions board))
+  (define-values (rows cols) (dimensionesMatriz board))
   (cond
     [(in-bounds? rows cols r c)
      (define cell (get-cell board r c))  ; '(b c a)
@@ -278,8 +385,8 @@
     [else board]))
 
 
-(provide difficulty->ratio
-         make-empty-board
+(provide dificultad->ratio
+         crearMatrizVacia
          init-bombs/list
          crear-tablero-inicial
          descubrir marcar actualizarEstado
