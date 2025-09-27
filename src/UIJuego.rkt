@@ -403,14 +403,14 @@
                 [min-height HBOARD])
 
      (field [tablero-actual tablero0])
-     (field [estado-actual  (game-status tablero0)])
+     (field [estado-actual  (gameStatus tablero0)])
 
      (define/public (tablero) tablero-actual)
      (define/public (estado)  estado-actual)
 
      (define/public (reset! new-board)
        (set! tablero-actual new-board)
-       (set! estado-actual (game-status tablero-actual))
+       (set! estado-actual (gameStatus tablero-actual))
        (reset-timer!)
        (send this refresh)
        (send lbl-status set-label "En juego")
@@ -449,7 +449,7 @@
      (define (aplicar-jugada! nuevo)
        (when (not (equal? nuevo tablero-actual))
          (set! tablero-actual nuevo)
-         (set! estado-actual (game-status tablero-actual))
+         (set! estado-actual (gameStatus tablero-actual))
          (cond
            [(eq? estado-actual 'lost)
             (stop-timer!)
@@ -479,7 +479,7 @@
              [(eq? t 'left-down)
               (aplicar-jugada! (descubrir tablero-actual r c))]
              [(eq? t 'right-down)
-              (aplicar-jugada! (toggle-flag tablero-actual r c))])))))))
+              (aplicar-jugada! (marcarBandera tablero-actual r c))])))))))
   
 (new horizontal-panel% [parent board-row] [stretchable-width #t])
 
